@@ -34,7 +34,7 @@ The application automatically transcribes spoken Tamil to text and seamlessly di
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/NammaOoruApp.git
+   git clone https://github.com/najibcode/NammaOoruApp.git
    ```
 2. Open the project in Android Studio.
 3. Sync Gradle dependencies.
