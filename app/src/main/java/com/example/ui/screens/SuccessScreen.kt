@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material.icons.filled.Verified
@@ -83,7 +83,7 @@ fun SuccessScreen(
                 Spacer(modifier = Modifier.height(32.dp))
                 
                 StatusItem(
-                    icon = Icons.Default.Chat,
+                    icon = Icons.AutoMirrored.Filled.Chat,
                     title = "WhatsApp Message",
                     subtitle = "வெற்றிகரமாக சென்றது",
                     iconContainerColor = Color(0xFF25D366),
