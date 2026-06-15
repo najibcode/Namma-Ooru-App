@@ -5,9 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,13 +39,13 @@ fun BottomNavBar(
             onClick = { onNavigate("Home") }
         )
         NavBarItem(
-            icon = Icons.Default.ReceiptLong,
+            icon = Icons.AutoMirrored.Filled.ReceiptLong,
             label = "ஆர்டர்கள்",
             isSelected = currentRoute == "Orders",
             onClick = { onNavigate("Orders") }
         )
         NavBarItem(
-            icon = Icons.Default.Help,
+            icon = Icons.AutoMirrored.Filled.Help,
             label = "உதவி",
             isSelected = currentRoute == "Help",
             onClick = { onNavigate("Help") }

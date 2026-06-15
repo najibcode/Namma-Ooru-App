@@ -11,8 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
@@ -51,7 +51,7 @@ fun HelpScreen(innerPadding: PaddingValues) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Help,
+                    imageVector = Icons.AutoMirrored.Filled.Help,
                     contentDescription = "Help",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)

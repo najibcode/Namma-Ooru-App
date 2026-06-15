@@ -8,8 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -45,7 +45,7 @@ fun OrdersScreen(innerPadding: PaddingValues) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.ReceiptLong,
+                    imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                     contentDescription = "Orders",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
