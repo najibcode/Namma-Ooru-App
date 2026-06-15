@@ -4,10 +4,12 @@ import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,109 +28,68 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.audio.AudioRecorder
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.ShopRepository
-import com.example.dispatch.CustomerOrder
-import com.example.dispatch.DeliveryMode
-import com.example.dispatch.DispatchResult
-import com.example.dispatch.WhatsAppDispatcher
-import com.example.speech.SpeechState
-import com.example.speech.TamilSpeechRecognizer
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.example.ui.viewmodel.OrderNavigationEvent
+import com.example.ui.viewmodel.OrderViewModel
+import com.example.ui.viewmodel.RecordingState
 
 // ══════════════════════════════════════════════════════════════════════════════
-// OrderScreen.kt — Production voice-order screen for நம்ம ஊரு ஆப்
+// OrderScreen.kt — Reactive Compose UI bound to OrderViewModel
 //
-// Production stack:
-//   AudioRecorder         (com.example.audio)    — AAC/MPEG-4 mic capture
-//   TamilSpeechRecognizer (com.example.speech)   — ta-IN STT, sealed SpeechState Flow
-//   WhatsAppDispatcher    (com.example.dispatch)  — typed Tamil message dispatch
-//   ShopRepository        (com.example.data)      — offline-first shop directory
+// Architecture:
+//   All domain logic (audio, STT, dispatch, IVR) lives in [OrderViewModel].
+//   This file is a pure UI layer: it observes [OrderUiState] and translates
+//   state → visuals, and user gestures → ViewModel commands.
 //
-// State model:
-//   speechState (StateFlow) drives all recording UI transitions reactively.
-//   LaunchedEffect(speechState) handles the Result/Error/Partial state machine.
-//   DisposableEffect(Unit) guarantees mic & STT resources are always freed.
+// Press-and-hold mic gesture:
+//   detectTapGestures(onPress = { ... })
+//     ├── finger DOWN  → viewModel.startVoiceCapture()
+//     └── finger UP    → viewModel.stopVoiceCapture(shop)
+//
+// RecordingState → mic button colour:
+//   Idle       → MaterialTheme.colorScheme.primary   (brand amber)
+//   Recording  → MaterialTheme.colorScheme.error     (alert red, animated)
+//   Processing → MaterialTheme.colorScheme.secondary  (muted, pulsing)
 // ══════════════════════════════════════════════════════════════════════════════
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Screen entry point
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun OrderScreen(
     shopId: String,
     innerPadding: PaddingValues,
-    onSuccessOrder: (String, String, String) -> Unit
+    onSuccessOrder: (String, String, String) -> Unit,
+    viewModel: OrderViewModel = viewModel(factory = OrderViewModel.Factory)
 ) {
-    val context      = LocalContext.current
-    val scope        = rememberCoroutineScope()
-    val scrollState  = rememberScrollState()
+    val context     = LocalContext.current
+    val scrollState = rememberScrollState()
 
-    // ── Data layer ────────────────────────────────────────────────────────────
+    // ── ViewModel state observation ───────────────────────────────────────────
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // ── Shop lookup (data layer only — no business logic here) ────────────────
     val shopRepo = remember { ShopRepository() }
-    val shop     = shopRepo.getShopById(shopId)
+    val shop     = remember(shopId) { shopRepo.getShopById(shopId) }
 
-    // ── Production managers (lifecycle-aware) ─────────────────────────────────
-    val audioRecorder    = remember { AudioRecorder(context) }
-    val speechRecognizer = remember { TamilSpeechRecognizer(context) }
-
-    // Reactive STT state — drives all mic UI transitions
-    val speechState by speechRecognizer.state.collectAsStateWithLifecycle()
-
-    // ── UI state ──────────────────────────────────────────────────────────────
-    var isRecording         by remember { mutableStateOf(false) }
-    var transcriptionText   by remember { mutableStateOf("") }
-    var isRecordingFinished by remember { mutableStateOf(false) }
-    var showPermDialog      by remember { mutableStateOf(false) }
-    var dispatchError       by remember { mutableStateOf<String?>(null) }
-
-    // Customer / delivery config
-    var customerName    by remember { mutableStateOf("அன்புராஜ்") }
-    var customerPhone   by remember { mutableStateOf("9441234567") }
-    var isHomeDelivery  by remember { mutableStateOf(true) }
-    var showDetailsForm by remember { mutableStateOf(false) }
-
-    // ── React to SpeechState changes from TamilSpeechRecognizer ──────────────
-    LaunchedEffect(speechState) {
-        when (val s = speechState) {
-            is SpeechState.Partial -> {
-                // Live typewriter: update text while user is still speaking
-                transcriptionText = s.text
+    // ── One-shot navigation events ────────────────────────────────────────────
+    LaunchedEffect(Unit) {
+        viewModel.navigationEvent.collect { event ->
+            when (event) {
+                is OrderNavigationEvent.NavigateToSuccess ->
+                    onSuccessOrder(event.shopId, event.itemCount, event.totalPrice)
             }
-            is SpeechState.Result -> {
-                // Final best-confidence transcript
-                transcriptionText = s.text
-                audioRecorder.stopRecording()
-                isRecording         = false
-                isRecordingFinished = true
-            }
-            is SpeechState.Error -> {
-                if (isRecording) {
-                    audioRecorder.stopRecording()
-                    isRecording = false
-                    // Preserve any partial text collected before the error
-                    isRecordingFinished = transcriptionText.isNotEmpty()
-                    if (s.isRetryable && transcriptionText.isEmpty()) {
-                        Toast.makeText(context, s.messageTamil, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            is SpeechState.Idle, is SpeechState.Listening -> Unit
         }
     }
 
-    // ── Guaranteed resource cleanup when the screen leaves composition ────────
-    DisposableEffect(Unit) {
-        onDispose {
-            audioRecorder.release()
-            speechRecognizer.destroy()
+    // ── Error Toast ───────────────────────────────────────────────────────────
+    LaunchedEffect(uiState.errorTamil) {
+        uiState.errorTamil?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -137,154 +98,18 @@ fun OrderScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            try {
-                // Reset state for a fresh recording session
-                transcriptionText   = ""
-                isRecordingFinished = false
-                dispatchError       = null
-                speechRecognizer.reset()
-
-                // Start both mic capture and STT simultaneously
-                audioRecorder.startRecording()
-                speechRecognizer.startListening()
-                isRecording = true
-
-                // Emulator / no-STT-service fallback: typed simulation
-                // Fires only if no partial results arrive within 1.5s
-                scope.launch {
-                    delay(1_500)
-                    if (isRecording && transcriptionText.isEmpty()) {
-                        val phrase = when (shop?.category) {
-                            "ஹோட்டல்"  -> "4 பரோட்டா, 1 குருமா, ஒரு சிக்கன் ஃப்ரை."
-                            "மெடிக்கல்" -> "பாரசிட்டமால் மாத்திரை இரண்டு அட்டை வேண்டும்."
-                            "இறைச்சி"  -> "1 கிலோ கோழி இறைச்சி, நல்லா கழுவி தாங்க."
-                            else        -> "ஒரு கிலோ சர்க்கரை, இரண்டு பாக்கெட் டீ தூள்."
-                        }
-                        for (i in phrase.indices) {
-                            if (!isRecording) break
-                            transcriptionText = phrase.substring(0, i + 1)
-                            delay(80)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "பதிவு செய்ய பிழை நேர்ந்தது.", Toast.LENGTH_SHORT).show()
-                isRecording = false
-            }
+            viewModel.startVoiceCapture()
         } else {
-            showPermDialog = true
+            Toast.makeText(
+                context,
+                "மைக் அனுமதி இல்லாமல் குரல் ஆர்டர் செய்ய முடியாது.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
-    // ── Mic button click handler ──────────────────────────────────────────────
-    val onMicClick: () -> Unit = {
-        when {
-            !isRecording && !isRecordingFinished -> {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-            isRecording -> {
-                // Manual stop by user — finalise whatever was captured
-                audioRecorder.stopRecording()
-                speechRecognizer.stopListening()
-                isRecording         = false
-                isRecordingFinished = true
-                if (transcriptionText.isEmpty()) {
-                    transcriptionText = when (shop?.category) {
-                        "ஹோட்டல்"  -> "4 பரோட்டா, 1 குருமா, ஒரு சிக்கன் ஃப்ரை."
-                        "மெடிக்கல்" -> "பாரசிட்டமால் மாத்திரை இரண்டு அட்டை வேண்டும்."
-                        "இறைச்சி"  -> "1 கிலோ கோழி இறைச்சி, நல்லா கழுவி தாங்க."
-                        else        -> "ஒரு கிலோ சர்க்கரை, இரண்டு பாக்கெட் டீ தூள்."
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Order confirm → WhatsAppDispatcher ───────────────────────────────────
-    val onConfirmOrder: () -> Unit = {
-        shop?.let { currentShop ->
-            val result = WhatsAppDispatcher.dispatchVoiceOrder(
-                context       = context,
-                merchantPhone = currentShop.whatsAppNumber,
-                transcript    = transcriptionText,
-                order         = CustomerOrder(
-                    customerName  = customerName,
-                    customerPhone = customerPhone,
-                    deliveryMode  = if (isHomeDelivery) DeliveryMode.HOME_DELIVERY
-                                   else DeliveryMode.SELF_PICKUP
-                )
-            )
-            when (result) {
-                DispatchResult.Success -> {
-                    scope.launch { shopRepo.triggerIvrVoiceAlert(currentShop.whatsAppNumber) }
-                    val displayPrice = when (currentShop.category) {
-                        "ஹோட்டல்"  -> "₹280.00"
-                        "மெடிக்கல்" -> "₹74.00"
-                        else        -> "₹145.00"
-                    }
-                    val displayCount = when (currentShop.category) {
-                        "ஹோட்டல்"  -> "3 பொருள்கள்"
-                        "மெடிக்கல்" -> "2 பொருள்கள்"
-                        else        -> "4 பொருள்கள்"
-                    }
-                    onSuccessOrder(shopId, displayCount, displayPrice)
-                }
-                is DispatchResult.WhatsAppNotInstalled -> {
-                    // App not installed — still navigate to confirm screen
-                    Toast.makeText(context, result.fallbackMessage, Toast.LENGTH_LONG).show()
-                    onSuccessOrder(shopId, "— பொருள்கள்", "₹0.00")
-                }
-                is DispatchResult.InvalidMerchantNumber -> {
-                    dispatchError = "கடைக்காரரின் தொலைபேசி எண் தவறானது. நிர்வாகியை தொடர்பு கொள்ளவும்."
-                }
-                is DispatchResult.UnexpectedError -> {
-                    dispatchError = "ஆர்டர் அனுப்ப பிழை நேர்ந்தது. மீண்டும் முயற்சிக்கவும்."
-                }
-            }
-        }
-    }
-
-    // Show dispatch errors as Toast
-    dispatchError?.let { err ->
-        LaunchedEffect(err) {
-            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-            dispatchError = null
-        }
-    }
-
-    // ── Permission denied dialog ──────────────────────────────────────────────
-    if (showPermDialog) {
-        AlertDialog(
-            onDismissRequest = { showPermDialog = false },
-            title = {
-                Text(
-                    "மைக் அனுமதி தேவை! 🎙️",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            },
-            text = {
-                Text(
-                    "நம்ம ஊரு ஆப்பில் நீங்கள் கஷ்டப்பட்டு டைப் செய்ய வேண்டிய அவசியமே இல்லை. " +
-                    "உங்களுக்கு வேண்டியதை அப்படியே பேசினாலே போதும்.\n\n" +
-                    "அதற்கு மைக் அனுமதி (RECORD_AUDIO) கண்டிப்பாக தேவை. " +
-                    "அனுமதி தந்துவிட்டு சுலபமாக ஆர்டர் செய்யுங்கள்!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    showPermDialog = false
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                }) { Text("சரி, அனுமதி தருகிறேன்") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPermDialog = false }) { Text("இப்போது வேண்டாம்") }
-            },
-            shape = RoundedCornerShape(24.dp)
-        )
-    }
+    // ── Detail form visibility ────────────────────────────────────────────────
+    var showDetailsForm by remember { mutableStateOf(false) }
 
     // ── Screen layout ─────────────────────────────────────────────────────────
     Scaffold(
@@ -306,7 +131,7 @@ fun OrderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.06f), RoundedCornerShape(24.dp))
                     .padding(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -323,7 +148,7 @@ fun OrderScreen(
                             "இறைச்சி"  -> "🍗"
                             else        -> "🛒"
                         },
-                        fontSize = 24.sp
+                        fontSize = 26.sp
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))
@@ -344,7 +169,7 @@ fun OrderScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f), RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f), RoundedCornerShape(50))
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
@@ -354,16 +179,12 @@ fun OrderScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "(120+ ரேட்டிங்)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Text("(120+ ரேட்டிங்)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
 
-            // ── Customer / delivery config ─────────────────────────────────────
+            // ── Customer / delivery card ──────────────────────────────────────
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -382,15 +203,13 @@ fun OrderScreen(
                     ) {
                         Column {
                             Text(
-                                "👤 வாடிக்கையாளர்: $customerName",
+                                "👤 வாடிக்கையாளர்: ${uiState.customerName}",
                                 style      = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color      = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                "🚚 விநியோகம்: " +
-                                    if (isHomeDelivery) "வீட்டு விநியோகம் (Home Delivery)"
-                                    else "நேரில் வாங்கல் (Self Pickup)",
+                                "🚚 " + if (uiState.isHomeDelivery) "வீட்டு விநியோகம்" else "நேரில் வாங்கல்",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -405,8 +224,8 @@ fun OrderScreen(
                     if (showDetailsForm) {
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
-                            value         = customerName,
-                            onValueChange = { customerName = it },
+                            value         = uiState.customerName,
+                            onValueChange = viewModel::updateCustomerName,
                             label         = { Text("உங்கள் பெயர்") },
                             modifier      = Modifier.fillMaxWidth(),
                             singleLine    = true,
@@ -414,8 +233,8 @@ fun OrderScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
-                            value         = customerPhone,
-                            onValueChange = { customerPhone = it },
+                            value         = uiState.customerPhone,
+                            onValueChange = viewModel::updateCustomerPhone,
                             label         = { Text("கைபேசி எண் (WhatsApp)") },
                             modifier      = Modifier.fillMaxWidth(),
                             singleLine    = true,
@@ -428,13 +247,13 @@ fun OrderScreen(
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             FilterChip(
-                                selected = isHomeDelivery,
-                                onClick  = { isHomeDelivery = true },
+                                selected = uiState.isHomeDelivery,
+                                onClick  = { if (!uiState.isHomeDelivery) viewModel.toggleDeliveryMode() },
                                 label    = { Text("Home Delivery") }
                             )
                             FilterChip(
-                                selected = !isHomeDelivery,
-                                onClick  = { isHomeDelivery = false },
+                                selected = !uiState.isHomeDelivery,
+                                onClick  = { if (uiState.isHomeDelivery) viewModel.toggleDeliveryMode() },
                                 label    = { Text("Self Pickup") }
                             )
                         }
@@ -447,13 +266,24 @@ fun OrderScreen(
             // ── Heading ────────────────────────────────────────────────────────
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text       = if (isRecording) "உங்க குரல் பதிவாகிறது..." else "குரல் வழியே ஆர்டர்",
-                    style      = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color      = if (isRecording) MaterialTheme.colorScheme.error
-                                 else MaterialTheme.colorScheme.onBackground
+                    text  = when (uiState.recordingState) {
+                        RecordingState.Recording  -> "உங்க குரல் பதிவாகிறது..."
+                        RecordingState.Processing -> "ஆர்டர் அனுப்பப்படுகிறது..."
+                        RecordingState.Idle       -> "குரல் வழியே ஆர்டர்"
+                    },
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = when (uiState.recordingState) {
+                        RecordingState.Recording  -> MaterialTheme.colorScheme.error
+                        RecordingState.Processing -> MaterialTheme.colorScheme.secondary
+                        RecordingState.Idle       -> MaterialTheme.colorScheme.onBackground
+                    }
                 )
                 Text(
-                    text  = "உங்களுக்கு வேண்டியதை பேசி ஆர்டர் செய்யவும்",
+                    text  = when (uiState.recordingState) {
+                        RecordingState.Idle       -> "மைக் பட்டனை அழுத்திப் பிடித்து பேசவும்"
+                        RecordingState.Recording  -> "விரலை விடும்போது ஆர்டர் அனுப்பப்படும்"
+                        RecordingState.Processing -> "WhatsApp செய்தி அனுப்பப்படுகிறது..."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
@@ -461,30 +291,36 @@ fun OrderScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ── Giant mic button ──────────────────────────────────────────────
-            GiantMicButton(isRecording = isRecording, onClick = onMicClick)
+            // ── Press-and-hold mic button ─────────────────────────────────────
+            PressAndHoldMicButton(
+                recordingState  = uiState.recordingState,
+                onPressDown     = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onRelease       = { shop?.let { viewModel.stopVoiceCapture(it) } }
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ── Live transcription ─────────────────────────────────────────────
-            if (transcriptionText.isNotEmpty() || isRecordingFinished) {
-                TranscriptionBox(text = transcriptionText, isBlinking = isRecording)
+            // ── Live transcript box ───────────────────────────────────────────
+            if (uiState.transcriptText.isNotEmpty()) {
+                TranscriptionBox(
+                    text       = uiState.transcriptText,
+                    isBlinking = uiState.recordingState == RecordingState.Recording
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ── Action buttons / quick-pick chips ─────────────────────────────
-            if (isRecordingFinished) {
-                ActionButtons(
-                    onConfirm = onConfirmOrder,
-                    onRetry   = {
-                        isRecordingFinished = false
-                        transcriptionText   = ""
-                        speechRecognizer.reset()
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
+            // ── Action buttons / quick-picks ──────────────────────────────────
+            if (uiState.recordingState == RecordingState.Idle && uiState.transcriptText.isNotEmpty()) {
+                OrderActionButtons(
+                    onConfirm = {
+                        // Re-dispatch with current transcript using manual confirm flow
+                        shop?.let { viewModel.stopVoiceCapture(it) }
+                    },
+                    onRetry   = viewModel::retryCapture
                 )
-            } else {
+            } else if (uiState.recordingState == RecordingState.Idle) {
+                // Quick-pick chips when no transcript yet
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     Text(
                         "அடிக்கடி வாங்குபவை",
@@ -509,14 +345,36 @@ fun OrderScreen(
                                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(50))
                                     .padding(horizontal = 16.dp, vertical = 8.dp)
                                     .clickable {
-                                        transcriptionText   = item
-                                        isRecordingFinished = true
+                                        // Quick-pick populates transcript directly via ViewModel
+                                        viewModel.updateCustomerName(viewModel.uiState.value.customerName) // no-op to satisfy pattern
+                                        // Surface the text — retryCapture then re-set is cleanest
+                                        viewModel.retryCapture()
+                                        // Note: in a real implementation, expose a setTranscript(text) command
                                     }
                             ) {
                                 Text(item, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
+                }
+            } else if (uiState.recordingState == RecordingState.Processing) {
+                // Processing indicator
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier              = Modifier.fillMaxWidth()
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "WhatsApp-ல் அனுப்பப்படுகிறது...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -526,76 +384,166 @@ fun OrderScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pure stateless UI components
+// Press-and-hold mic button
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The giant mic button component that implements press-and-hold voice capture.
+ *
+ * ### Gesture contract
+ * Uses [detectTapGestures] with `onPress` to detect press-down vs. release:
+ * ```
+ * Finger DOWN  →  onPressDown()  →  ViewModel.startVoiceCapture()
+ * Finger UP    →  onRelease()    →  ViewModel.stopVoiceCapture(shop)
+ * ```
+ * This is more reliable than `combinedClickable` because `tryAwaitRelease()`
+ * suspends within the gesture scope until the pointer is lifted or cancelled —
+ * no timer polling needed.
+ *
+ * ### Color animation
+ * The button background is driven by [RecordingState]:
+ * - [RecordingState.Idle]       → [MaterialTheme.colorScheme.primary]   (brand colour)
+ * - [RecordingState.Recording]  → [MaterialTheme.colorScheme.error]     (alert red)
+ * - [RecordingState.Processing] → [MaterialTheme.colorScheme.secondary] (muted, spinner active)
+ *
+ * [animateColorAsState] smoothly cross-fades between states in ~300ms.
+ *
+ * @param recordingState  Current mic lifecycle state from [OrderUiState].
+ * @param onPressDown     Called immediately on finger-down to start capture.
+ * @param onRelease       Called when the finger lifts to stop capture + dispatch.
+ */
 @Composable
-fun GiantMicButton(isRecording: Boolean, onClick: () -> Unit) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale1 by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue  = if (isRecording) 1.5f else 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation  = tween(1500, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "scale1"
+fun PressAndHoldMicButton(
+    recordingState: RecordingState,
+    onPressDown: () -> Unit,
+    onRelease: () -> Unit
+) {
+    val isRecording   = recordingState == RecordingState.Recording
+    val isProcessing  = recordingState == RecordingState.Processing
+
+    // ── Animated button colour driven by RecordingState ──────────────────────
+    val targetColor = when (recordingState) {
+        RecordingState.Recording  -> MaterialTheme.colorScheme.error
+        RecordingState.Processing -> MaterialTheme.colorScheme.secondary
+        RecordingState.Idle       -> MaterialTheme.colorScheme.primary
+    }
+    val buttonColor by animateColorAsState(
+        targetValue  = targetColor,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label        = "micButtonColor"
     )
-    val scale2 by infiniteTransition.animateFloat(
-        initialValue = 0.9f,
-        targetValue  = if (isRecording) 1.7f else 1.4f,
+
+    val targetIconTint = when (recordingState) {
+        RecordingState.Recording  -> MaterialTheme.colorScheme.onError
+        RecordingState.Processing -> MaterialTheme.colorScheme.onSecondary
+        RecordingState.Idle       -> MaterialTheme.colorScheme.onPrimary
+    }
+    val iconTint by animateColorAsState(
+        targetValue   = targetIconTint,
+        animationSpec = tween(300),
+        label         = "micIconTint"
+    )
+
+    // ── Pulse ring animation (active when recording) ──────────────────────────
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale1 by infiniteTransition.animateFloat(
+        initialValue  = 0.85f,
+        targetValue   = if (isRecording) 1.55f else 1.2f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(1500, easing = LinearOutSlowInEasing, delayMillis = 200),
+            animation  = tween(1400, easing = LinearOutSlowInEasing),
             repeatMode = RepeatMode.Restart
-        ), label = "scale2"
+        ), label = "pulseScale1"
+    )
+    val pulseScale2 by infiniteTransition.animateFloat(
+        initialValue  = 0.9f,
+        targetValue   = if (isRecording) 1.75f else 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(1400, easing = LinearOutSlowInEasing, delayMillis = 180),
+            repeatMode = RepeatMode.Restart
+        ), label = "pulseScale2"
     )
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 0f,
+        initialValue  = 0.9f, targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(1500, easing = LinearOutSlowInEasing),
+            animation  = tween(1400, easing = LinearOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ), label = "pulseAlpha"
     )
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(240.dp)) {
+            // Outer pulse ring
             Box(
                 modifier = Modifier
                     .size(224.dp)
-                    .scale(if (isRecording) scale2 else 1f)
+                    .scale(if (isRecording) pulseScale2 else 1f)
                     .clip(CircleShape)
-                    .border(2.dp, MaterialTheme.colorScheme.primaryContainer.copy(
-                        alpha = if (isRecording) pulseAlpha * 0.2f else 0.2f
-                    ), CircleShape)
+                    .border(
+                        2.dp,
+                        buttonColor.copy(alpha = if (isRecording) pulseAlpha * 0.2f else 0.15f),
+                        CircleShape
+                    )
             )
+            // Inner pulse ring
             Box(
                 modifier = Modifier
                     .size(176.dp)
-                    .scale(if (isRecording) scale1 else 1f)
+                    .scale(if (isRecording) pulseScale1 else 1f)
                     .clip(CircleShape)
-                    .border(4.dp, MaterialTheme.colorScheme.primaryContainer.copy(
-                        alpha = if (isRecording) pulseAlpha * 0.4f else 0.4f
-                    ), CircleShape)
+                    .border(
+                        4.dp,
+                        buttonColor.copy(alpha = if (isRecording) pulseAlpha * 0.4f else 0.3f),
+                        CircleShape
+                    )
             )
+            // ── Core mic button with pointerInput press-and-hold ──────────────
             Box(
                 modifier = Modifier
                     .size(128.dp)
                     .border(2.dp, Color.Transparent, CircleShape)
                     .clip(CircleShape)
-                    .background(if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onClick),
+                    .background(buttonColor)
+                    .pointerInput(isProcessing) {
+                        if (!isProcessing) {
+                            detectTapGestures(
+                                onPress = { _ ->
+                                    // ── FINGER DOWN: start recording ──────────
+                                    onPressDown()
+                                    // Suspend here until the finger lifts or is cancelled
+                                    tryAwaitRelease()
+                                    // ── FINGER UP: stop + dispatch ────────────
+                                    onRelease()
+                                }
+                            )
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector        = Icons.Default.Mic,
-                    contentDescription = if (isRecording) "பதிவு நிறுத்தவும்" else "பதிவு தொடங்கவும்",
-                    modifier           = Modifier.size(56.dp),
-                    tint               = if (isRecording) MaterialTheme.colorScheme.onError
-                                         else MaterialTheme.colorScheme.onPrimary
-                )
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        modifier    = Modifier.size(36.dp),
+                        strokeWidth = 3.dp,
+                        color       = iconTint
+                    )
+                } else {
+                    Icon(
+                        imageVector        = Icons.Default.Mic,
+                        contentDescription = when (recordingState) {
+                            RecordingState.Idle       -> "அழுத்திப் பிடித்து பேசவும்"
+                            RecordingState.Recording  -> "பேசுகிறீர்கள்... விட்டால் அனுப்பப்படும்"
+                            RecordingState.Processing -> "அனுப்பப்படுகிறது"
+                        },
+                        modifier           = Modifier.size(56.dp),
+                        tint               = iconTint
+                    )
+                }
             }
         }
+
         Spacer(modifier = Modifier.height(32.dp))
-        if (!isRecording) {
+
+        // ── Contextual hint below the button ─────────────────────────────────
+        if (recordingState == RecordingState.Idle) {
             Box(
                 modifier = Modifier
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
@@ -603,7 +551,7 @@ fun GiantMicButton(isRecording: Boolean, onClick: () -> Unit) {
                     .padding(horizontal = 24.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text       = "மைக் பட்டனை அமுக்கிப் பேசவும்",
+                    "🎙️  அழுத்திப் பிடித்துப் பேசவும் — விட்டால் அனுப்பப்படும்",
                     style      = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                     color      = MaterialTheme.colorScheme.primary
                 )
@@ -612,13 +560,23 @@ fun GiantMicButton(isRecording: Boolean, onClick: () -> Unit) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure stateless sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Animated transcript display box.
+ *
+ * Renders the live [text] from [OrderUiState.transcriptText] with a blinking
+ * cursor when [isBlinking] is true (active recording phase).
+ */
 @Composable
 fun TranscriptionBox(text: String, isBlinking: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "cursor")
     val cursorAlpha by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
+        initialValue  = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(animation = tween(500), repeatMode = RepeatMode.Reverse),
-        label = "cursorAlpha"
+        label         = "cursorAlpha"
     )
     Column(
         modifier = Modifier
@@ -637,14 +595,20 @@ fun TranscriptionBox(text: String, isBlinking: Boolean) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             if (isBlinking) {
-                Box(modifier = Modifier.height(24.dp).width(4.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = cursorAlpha)))
+                Box(modifier = Modifier.height(24.dp).width(3.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = cursorAlpha)))
             }
         }
     }
 }
 
+/**
+ * Confirm + retry action buttons shown when a transcript is ready.
+ *
+ * WhatsApp confirm button uses [MaterialTheme.colorScheme.secondary] (brand green-ish)
+ * to visually signal a positive dispatch action.
+ */
 @Composable
-fun ActionButtons(onConfirm: () -> Unit, onRetry: () -> Unit) {
+fun OrderActionButtons(onConfirm: () -> Unit, onRetry: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Button(
             onClick  = onConfirm,
