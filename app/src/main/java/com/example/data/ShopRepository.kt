@@ -67,7 +67,11 @@ class ShopRepository {
      */
     private val _shops = MutableStateFlow(buildSampleShops())
 
-    /** Public, read-only view exposed to the rest of the app. */
+    /**
+     * Public, read-only view exposed to the rest of the app.
+     * Annotated so the JVM getter name does not clash with [getShopsByCategory].
+     */
+    @get:JvmName("shopsFlow")
     val shops: Flow<List<Shop>> = _shops.asStateFlow()
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -76,6 +80,7 @@ class ShopRepository {
 
     private val _serviceWorkers = MutableStateFlow(buildSampleServiceWorkers())
 
+    @get:JvmName("serviceWorkersFlow")
     val serviceWorkers: Flow<List<ServiceWorker>> = _serviceWorkers.asStateFlow()
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -123,7 +128,7 @@ class ShopRepository {
      * Equivalent to collecting [shops] directly, but provided for a consistent
      * API surface.
      */
-    fun getShops(): Flow<List<Shop>> = shops
+    fun getAllShops(): Flow<List<Shop>> = shops
 
     /**
      * Looks up a single shop by its [Shop.id].
@@ -144,7 +149,7 @@ class ShopRepository {
      * Phase 2: this Flow will be backed by a Room DAO and a Firestore listener
      * for real-time availability updates from the partner app.
      */
-    fun getServiceWorkers(): Flow<List<ServiceWorker>> = serviceWorkers
+    fun getAllServiceWorkers(): Flow<List<ServiceWorker>> = serviceWorkers
 
     // ─────────────────────────────────────────────────────────────────────────
     // 4.  IVR telephony integration
