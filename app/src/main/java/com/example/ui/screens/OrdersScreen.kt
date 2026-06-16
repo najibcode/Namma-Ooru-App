@@ -3,39 +3,64 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoodBad
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.OrderHistoryRepository
+import com.example.data.OrderRecord
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OrdersScreen.kt — Live voice-order history tab
+//
+// Reactive:
+//   Observes OrderHistoryRepository.ordersFlow via collectAsStateWithLifecycle.
+//   Every time OrderViewModel appends a new order on the Main dispatcher,
+//   this screen recomposes automatically within one frame — no pull-to-refresh.
+//
+// Structure:
+//   ┌─ Header (icon + title) ─────────────────────────────────────────────┐
+//   │  LazyColumn of OrderHistoryCard items (newest first)                │
+//   │  Empty state: illustrated card if no orders placed yet              │
+//   └─────────────────────────────────────────────────────────────────────┘
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 fun OrdersScreen(innerPadding: PaddingValues) {
-    val scrollState = rememberScrollState()
+
+    // ── Live observation: recomposes whenever a new order is appended ─────────
+    val orders by OrderHistoryRepository.ordersFlow.collectAsStateWithLifecycle(
+        initialValue = OrderHistoryRepository.currentOrders()
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
-            .padding(horizontal = 20.dp)
-            .verticalScroll(scrollState)
     ) {
-        Spacer(modifier = Modifier.height(24.dp))
-
+        // ── Header ────────────────────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 24.dp, bottom = 16.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -54,92 +79,96 @@ fun OrdersScreen(innerPadding: PaddingValues) {
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
-                    text = "உங்களின் ஆர்டர்கள்",
+                    text  = "உங்களின் ஆர்டர்கள்",
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "வாய்ஸ் ஆர்டர் விபரங்கள் கீழே உள்ளன",
+                    text  = "${orders.size} வாய்ஸ் ஆர்டர்கள்",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Orders List
-        Column(
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            OrderCard(
-                shopName = "சக்தி உணவகம்",
-                items = "4 பரோட்டா, 1 குருமா, ஒரு சிக்கன் ஃப்ரை",
-                price = "₹850.00",
-                date = "இன்று, 02:40 PM",
-                status = "ஆர்டர் அனுப்பப்பட்டது",
-                statusColor = MaterialTheme.colorScheme.secondary,
-                statusBg = MaterialTheme.colorScheme.secondaryContainer
-            )
-
-            OrderCard(
-                shopName = "சரவணா ஸ்டோர்ஸ்",
-                items = "பொன்னி அரிசி (5KG) - 1 மூட்டை, நல்லெண்ணெய் (1L) - 2 பாட்டில்",
-                price = "₹790.00",
-                date = "நேற்று, 11:15 AM",
-                status = "வெற்றிகரமாக முடிந்தது",
-                statusColor = MaterialTheme.colorScheme.primary,
-                statusBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-            )
-
-            OrderCard(
-                shopName = "அப்பல்லோ பார்மசி",
-                items = "பாரசிட்டமால் மாத்திரை (10 மாத்திரைகள் கொண்ட ஒரு அட்டை)",
-                price = "₹32.00",
-                date = "30 May 2026",
-                status = "டெலிவரி செய்யப்பட்டது",
-                statusColor = MaterialTheme.colorScheme.secondary,
-                statusBg = MaterialTheme.colorScheme.secondaryContainer
-            )
+        // ── Body: lazy list or empty state ────────────────────────────────────
+        if (orders.isEmpty()) {
+            EmptyOrdersState(modifier = Modifier.fillMaxSize())
+        } else {
+            LazyColumn(
+                modifier              = Modifier.fillMaxSize(),
+                contentPadding        = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement   = Arrangement.spacedBy(16.dp)
+            ) {
+                items(orders, key = { it.id }) { record ->
+                    OrderHistoryCard(record = record)
+                }
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
+                }
+            }
         }
-
-        Spacer(modifier = Modifier.height(100.dp))
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Order history card
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Displays a single [OrderRecord] with shop name, voice transcript, delivery mode,
+ * price, and timestamp.
+ *
+ * Status badge colour is driven by [OrderRecord.isDispatched]:
+ * - `true`  → green secondary (ஆர்டர் அனுப்பப்பட்டது)
+ * - `false` → amber primary  (WhatsApp திறக்கப்படவில்லை)
+ */
 @Composable
-fun OrderCard(
-    shopName: String,
-    items: String,
-    price: String,
-    date: String,
-    status: String,
-    statusColor: Color,
-    statusBg: Color
-) {
+fun OrderHistoryCard(record: OrderRecord) {
+    val statusLabel = if (record.isDispatched) "ஆர்டர் அனுப்பப்பட்டது"
+                      else                     "WhatsApp திறக்கவில்லை"
+    val statusColor = if (record.isDispatched) MaterialTheme.colorScheme.secondary
+                      else                     MaterialTheme.colorScheme.tertiary
+    val statusBg    = if (record.isDispatched) MaterialTheme.colorScheme.secondaryContainer
+                      else                     MaterialTheme.colorScheme.tertiaryContainer
+
+    val categoryEmoji = when (record.category) {
+        "ஹோட்டல்"  -> "🍲"
+        "மெடிக்கல்" -> "💊"
+        "இறைச்சி"  -> "🍗"
+        else        -> "🛒"
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                RoundedCornerShape(20.dp)
+            ),
+        shape  = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+
+            // ── Row 1: shop name + status badge ──────────────────────────────
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
-                Text(
-                    text = shopName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(categoryEmoji, fontSize = 20.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text       = record.shopName,
+                        style      = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onSurface
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(percent = 50))
@@ -147,46 +176,64 @@ fun OrderCard(
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = status,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = statusColor,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        fontSize = 12.sp
+                        text       = statusLabel,
+                        style      = MaterialTheme.typography.labelSmall,
+                        color      = statusColor,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // ── Row 2: voice transcript ───────────────────────────────────────
             Row(verticalAlignment = Alignment.Top) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)),
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Mic,
+                        imageVector        = Icons.Default.Mic,
                         contentDescription = "Voice Order",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(18.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "பேசிய விபரம்:",
+                        text  = "பேசிய விபரம்:",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "\"$items\"",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                        text       = "\"${record.transcript}\"",
+                        style      = MaterialTheme.typography.bodyMedium,
+                        color      = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ── Row 3: delivery mode chip ─────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.08f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text  = "🚚 ${record.deliveryMode}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -195,34 +242,71 @@ fun OrderCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // ── Row 4: timestamp + price ──────────────────────────────────────
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Schedule,
+                        imageVector        = Icons.Default.Schedule,
                         contentDescription = "Date",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
+                        tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier           = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = date,
+                        text  = record.timestamp,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
                 Text(
-                    text = price,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    text       = record.displayPrice,
+                    style      = MaterialTheme.typography.headlineSmall,
+                    color      = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty state
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Shown when [OrderHistoryRepository.ordersFlow] emits an empty list.
+ *
+ * In practice this should never appear since the repository is seeded with
+ * sample data, but it's the correct UX for a clean install with no orders.
+ */
+@Composable
+fun EmptyOrdersState(modifier: Modifier = Modifier) {
+    Column(
+        modifier              = modifier.padding(32.dp),
+        horizontalAlignment   = Alignment.CenterHorizontally,
+        verticalArrangement   = Arrangement.Center
+    ) {
+        Icon(
+            imageVector        = Icons.Default.MoodBad,
+            contentDescription = null,
+            modifier           = Modifier.size(72.dp),
+            tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text  = "இதுவரை ஆர்டர் இல்லை",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text  = "வீட்டு திரையில் கடை தேர்ந்தெடுத்து குரல் ஆர்டர் செய்யுங்கள்",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        )
     }
 }

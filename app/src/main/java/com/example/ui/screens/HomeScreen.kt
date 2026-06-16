@@ -110,8 +110,7 @@ fun BentoCategoryGrid(onCategorySelected: (String) -> Unit) {
                 iconContainerColor = Color.White.copy(alpha = 0.5f),
                 modifier = Modifier.weight(1f),
                 onClick = {
-                     // Not implemented mock, fallback to 1 
-                     onCategorySelected("1")
+                     onCategorySelected("4")
                 }
             )
         }

@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.audio.AudioRecorder
+import com.example.data.OrderHistoryRepository
+import com.example.data.OrderRecord
 import com.example.data.ShopRepository
 import com.example.dispatch.CustomerOrder
 import com.example.dispatch.DeliveryMode
@@ -327,6 +329,25 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     val (count, price) = deriveDisplayMetrics(activeShop)
+
+                    // ── Append to live order history log ───────────────────────────
+                    OrderHistoryRepository.appendOrder(
+                        OrderRecord(
+                            shopId       = activeShop.id,
+                            shopName     = activeShop.nameTamil,
+                            category     = activeShop.category,
+                            transcript   = transcript,
+                            customerName = currentState.customerName,
+                            deliveryMode = if (currentState.isHomeDelivery)
+                                "வீட்டு விநியோகம் (Home Delivery)"
+                            else
+                                "நேரில் வாங்கிக்கொள்ளல் (Self Pickup)",
+                            displayPrice = price,
+                            displayCount = count,
+                            isDispatched = true
+                        )
+                    )
+
                     _uiState.update { it.copy(
                         recordingState    = RecordingState.Idle,
                         transcriptText    = transcript,
