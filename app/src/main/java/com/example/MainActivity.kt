@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,59 +16,70 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.components.BottomNavBar
 import com.example.ui.navigation.Home
+import com.example.ui.navigation.Onboarding
 import com.example.ui.navigation.Orders
 import com.example.ui.navigation.Help
 import com.example.ui.navigation.Order
+import com.example.ui.navigation.Splash
 import com.example.ui.navigation.Success
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.OrdersScreen
 import com.example.ui.screens.HelpScreen
 import com.example.ui.screens.OrderScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.SuccessScreen
 import com.example.ui.theme.MyApplicationTheme
+
+private const val PREFS_NAME   = "namma_ooru_prefs"
+private const val KEY_ONBOARDED = "has_seen_onboarding"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val prefs       = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val hasOnboarded = prefs.getBoolean(KEY_ONBOARDED, false)
+
         setContent {
             MyApplicationTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
-                
-                // Track current route conceptually 
+
+                // Track current route conceptually
                 val currentRoute = when (navBackStackEntry?.destination?.route) {
-                    Home.route -> "Home"
+                    Home.route   -> "Home"
                     Orders.route -> "Orders"
-                    Help.route -> "Help"
-                    else -> "Other"
+                    Help.route   -> "Help"
+                    else         -> "Other"
                 }
-                
+
                 // Show Bottom Nav on Home, Orders, and Help tabs
                 val showBottomNav = currentRoute == "Home" || currentRoute == "Orders" || currentRoute == "Help"
-                
+
                 Scaffold(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier  = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (showBottomNav) {
                             BottomNavBar(
                                 currentRoute = currentRoute,
-                                onNavigate = { destination ->
+                                onNavigate   = { destination ->
                                     when (destination) {
                                         "Home" -> navController.navigate(Home.route) {
                                             popUpTo(Home.route) { saveState = true }
                                             launchSingleTop = true
-                                            restoreState = true
+                                            restoreState    = true
                                         }
                                         "Orders" -> navController.navigate(Orders.route) {
                                             popUpTo(Home.route) { saveState = true }
                                             launchSingleTop = true
-                                            restoreState = true
+                                            restoreState    = true
                                         }
                                         "Help" -> navController.navigate(Help.route) {
                                             popUpTo(Home.route) { saveState = true }
                                             launchSingleTop = true
-                                            restoreState = true
+                                            restoreState    = true
                                         }
                                     }
                                 }
@@ -76,13 +88,44 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { innerPadding ->
                     NavHost(
-                        navController = navController,
-                        startDestination = Home.route,
-                        modifier = Modifier.fillMaxSize()
+                        navController    = navController,
+                        startDestination = Splash.route,
+                        modifier         = Modifier.fillMaxSize()
                     ) {
+                        // ── Splash (always first) ──────────────────────────────────────
+                        composable(Splash.route) {
+                            SplashScreen(
+                                onComplete = {
+                                    if (hasOnboarded) {
+                                        navController.navigate(Home.route) {
+                                            popUpTo(Splash.route) { inclusive = true }
+                                        }
+                                    } else {
+                                        navController.navigate(Onboarding.route) {
+                                            popUpTo(Splash.route) { inclusive = true }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        // ── Onboarding (first launch only) ────────────────────────────
+                        composable(Onboarding.route) {
+                            OnboardingScreen(
+                                onComplete = {
+                                    // Mark onboarding as complete
+                                    prefs.edit().putBoolean(KEY_ONBOARDED, true).apply()
+                                    navController.navigate(Home.route) {
+                                        popUpTo(Onboarding.route) { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+
+                        // ── Main screens ───────────────────────────────────────────────
                         composable(Home.route) {
                             HomeScreen(
-                                innerPadding = innerPadding,
+                                innerPadding       = innerPadding,
                                 onCategorySelected = { shopId ->
                                     navController.navigate(Order.createRoute(shopId))
                                 }
@@ -96,11 +139,11 @@ class MainActivity : ComponentActivity() {
                         composable(Help.route) {
                             HelpScreen(innerPadding = innerPadding)
                         }
-                        
+
                         composable(Order.route) { backStackEntry ->
                             val shopId = backStackEntry.arguments?.getString("shopId") ?: "1"
                             OrderScreen(
-                                shopId = shopId,
+                                shopId       = shopId,
                                 innerPadding = innerPadding,
                                 onSuccessOrder = { id, items, total ->
                                     navController.navigate(Success.createRoute(id, items, total)) {
@@ -109,14 +152,14 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
-                        
+
                         composable(Success.route) { backStackEntry ->
                             val items = backStackEntry.arguments?.getString("orderItemsStr") ?: "04"
                             val total = backStackEntry.arguments?.getString("totalCostStr") ?: "₹850.00"
                             SuccessScreen(
-                                itemsInfo = items,
-                                totalInfo = total,
-                                innerPadding = innerPadding,
+                                itemsInfo     = items,
+                                totalInfo     = total,
+                                innerPadding  = innerPadding,
                                 onNavigateHome = {
                                     navController.navigate(Home.route) {
                                         popUpTo(0)

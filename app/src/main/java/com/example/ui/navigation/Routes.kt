@@ -1,5 +1,7 @@
 package com.example.ui.navigation
 
+object Splash { val route = "Splash" }
+object Onboarding { val route = "Onboarding" }
 object Home { val route = "Home" }
 object Orders { val route = "Orders" }
 object Help { val route = "Help" }
