@@ -300,18 +300,19 @@ fun OrderScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ── Live transcript box ───────────────────────────────────────────
-            if (uiState.transcriptText.isNotEmpty()) {
-                TranscriptionBox(
-                    text       = uiState.transcriptText,
-                    isBlinking = uiState.recordingState == RecordingState.Recording
-                )
-            }
+            // ── Central card: ALWAYS visible — directly bound to uiState.transcriptText ──
+            // Spec: "bind a central card text display field directly to the ViewModel's
+            //        uiState.collectAsState().value.transcriptText" — no isEmpty guard.
+            TranscriptionCard(
+                text       = uiState.transcriptText,
+                isBlinking = uiState.recordingState == RecordingState.Recording
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             // ── Action buttons / quick-picks ──────────────────────────────────
-            if (uiState.recordingState == RecordingState.Idle && uiState.transcriptText.isNotEmpty()) {
+            val isPromptText = uiState.transcriptText == "மைக் பட்டனை அமுக்கிப் பேசவும்"
+            if (uiState.recordingState == RecordingState.Idle && !isPromptText) {
                 OrderActionButtons(
                     onConfirm = {
                         // Re-dispatch with current transcript using manual confirm flow
@@ -319,8 +320,8 @@ fun OrderScreen(
                     },
                     onRetry   = viewModel::retryCapture
                 )
-            } else if (uiState.recordingState == RecordingState.Idle) {
-                // Quick-pick chips when no transcript yet
+            } else if (uiState.recordingState == RecordingState.Idle && isPromptText) {
+                // Quick-pick chips shown when the card still shows the initial prompt
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     Text(
                         "அடிக்கடி வாங்குபவை",
@@ -447,19 +448,19 @@ fun PressAndHoldMicButton(
     // ── Pulse ring animation (active when recording) ──────────────────────────
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale1 by infiniteTransition.animateFloat(
-        initialValue  = 0.85f,
-        targetValue   = if (isRecording) 1.55f else 1.2f,
+        initialValue  = 1.0f,
+        targetValue   = if (isRecording) 1.25f else 1.05f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(1400, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
+            animation  = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
         ), label = "pulseScale1"
     )
     val pulseScale2 by infiniteTransition.animateFloat(
-        initialValue  = 0.9f,
-        targetValue   = if (isRecording) 1.75f else 1.4f,
+        initialValue  = 1.0f,
+        targetValue   = if (isRecording) 1.25f else 1.05f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(1400, easing = LinearOutSlowInEasing, delayMillis = 180),
-            repeatMode = RepeatMode.Restart
+            animation  = tween(900, easing = FastOutSlowInEasing, delayMillis = 150),
+            repeatMode = RepeatMode.Reverse
         ), label = "pulseScale2"
     )
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -565,37 +566,75 @@ fun PressAndHoldMicButton(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Animated transcript display box.
+ * The **central card text display field** — always visible, directly bound to
+ * [OrderUiState.transcriptText].
  *
- * Renders the live [text] from [OrderUiState.transcriptText] with a blinking
- * cursor when [isBlinking] is true (active recording phase).
+ * Renders the live [text] with a blinking cursor when [isBlinking] is true
+ * (active Recording state). When the default prompt string is shown the text
+ * is rendered in a muted style; real speech text uses full [MaterialTheme.colorScheme.onSurface].
  */
 @Composable
-fun TranscriptionBox(text: String, isBlinking: Boolean) {
+fun TranscriptionCard(text: String, isBlinking: Boolean) {
+    val defaultPrompt = "மைக் பட்டனை அமுக்கிப் பேசவும்"
+    val isDefault     = text == defaultPrompt
+
     val infiniteTransition = rememberInfiniteTransition(label = "cursor")
     val cursorAlpha by infiniteTransition.animateFloat(
-        initialValue  = 0f, targetValue = 1f,
+        initialValue  = 0f, targetValue = if (isBlinking) 1f else 0f,
         animationSpec = infiniteRepeatable(animation = tween(500), repeatMode = RepeatMode.Reverse),
         label         = "cursorAlpha"
     )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-            .padding(16.dp)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape    = RoundedCornerShape(20.dp),
+        colors   = CardDefaults.cardColors(
+            containerColor = if (isBlinking)
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.08f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isBlinking) MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+            else             MaterialTheme.colorScheme.outlineVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isBlinking) 6.dp else 2.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("ஆர்டரின் விவரம்", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-            if (isBlinking) {
-                Box(modifier = Modifier.height(24.dp).width(3.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = cursorAlpha)))
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.EditNote,
+                    contentDescription = null,
+                    tint = if (isBlinking) MaterialTheme.colorScheme.error
+                           else            MaterialTheme.colorScheme.secondary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "ஆர்டரின் விவரம்",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text  = text,
+                    style = if (isDefault)
+                        MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal)
+                    else
+                        MaterialTheme.typography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                    color = if (isDefault)
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    else if (isBlinking)
+                        MaterialTheme.colorScheme.onSurface
+                    else
+                        MaterialTheme.colorScheme.onSurface
+                )
+                if (isBlinking) {
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Box(modifier = Modifier.height(22.dp).width(3.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.error.copy(alpha = cursorAlpha)))
+                }
             }
         }
     }

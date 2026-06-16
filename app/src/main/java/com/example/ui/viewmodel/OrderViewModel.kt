@@ -54,29 +54,30 @@ private const val TAG = "OrderViewModel"
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Explicit state machine for the mic recording lifecycle.
+ * Explicit sealed interface state machine for the mic recording lifecycle.
  *
- * UI components exhaustively `when`-match on this to drive color, animation,
- * and button label without any boolean flag clutter.
+ * Using a sealed interface (Kotlin 1.5+) instead of a sealed class allows
+ * the state objects to mix in other interfaces — enabling richer exhaustive
+ * `when` expressions with no performance overhead.
  *
  * ```
  * Idle ──press mic──▶ Recording ──release mic──▶ Processing ──dispatched──▶ Idle
  *          ▲                                           │
- *          └──────────── error / retry ────────────────┘
+ *          └──────────── error / retry ────────────┘
  * ```
  */
-sealed class RecordingState {
+sealed interface RecordingState {
     /** No recording session active. Mic button shows primary brand colour. */
-    data object Idle : RecordingState()
+    data object Idle : RecordingState
 
     /** Microphone is open; STT is capturing. Mic button shows alert red. */
-    data object Recording : RecordingState()
+    data object Recording : RecordingState
 
     /**
      * Recording stopped; WhatsApp dispatch + IVR trigger are in progress.
      * Show spinner. Mic button is disabled.
      */
-    data object Processing : RecordingState()
+    data object Processing : RecordingState
 }
 
 /**
@@ -98,7 +99,8 @@ sealed class RecordingState {
  */
 data class OrderUiState(
     val recordingState: RecordingState = RecordingState.Idle,
-    val transcriptText: String         = "",
+    /** Defaults to the Tamil prompt string so the card is never blank on first render. */
+    val transcriptText: String         = "மைக் பட்டனை அமுக்கிப் பேசவும்",
     val errorTamil: String?            = null,
     val isOrderDispatched: Boolean     = false,
     val customerName: String           = "அன்புராஜ்",
@@ -379,7 +381,8 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
         speechRecognizer.reset()
         _uiState.update { it.copy(
             recordingState = RecordingState.Idle,
-            transcriptText = "",
+            // Reset to the Tamil prompt — card is never blank between sessions
+            transcriptText = "மைக் பட்டனை அமுக்கிப் பேசவும்",
             errorTamil     = null
         )}
     }
