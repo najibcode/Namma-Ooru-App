@@ -75,6 +75,12 @@ private const val COLLECTION_SHOPS  = "shops"
 class FirestoreShopRepository(
     private val localFallback: ShopRepository = ShopRepository()
 ) {
+    companion object {
+        val instance: FirestoreShopRepository by lazy { FirestoreShopRepository() }
+
+        @Volatile
+        private var cachedShopsList: List<Shop> = emptyList()
+    }
 
     private val db: FirebaseFirestore = Firebase.firestore.also { fs ->
         // Enable offline persistence with a 50 MB cache
@@ -127,6 +133,7 @@ class FirestoreShopRepository(
                     }
                 } ?: emptyList()
 
+                cachedShopsList = shopList
                 Log.d(TAG, "Firestore snapshot: ${shopList.size} shops received")
                 trySend(shopList)
             }
@@ -170,7 +177,7 @@ class FirestoreShopRepository(
      * A full suspend fetch is deferred to Phase 2 if needed.
      */
     fun getShopById(id: String): Shop? =
-        localFallback.getShopById(id)
+        cachedShopsList.find { it.id == id } ?: localFallback.getShopById(id)
 
     // ── 4. IVR integration (delegates to ShopRepository) ─────────────────────
 
