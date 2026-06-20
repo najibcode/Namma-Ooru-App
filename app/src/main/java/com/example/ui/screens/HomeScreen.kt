@@ -158,12 +158,6 @@ fun BentoCategoryGrid(
     uiState: com.example.ui.viewmodel.HomeUiState,
     onCategorySelected: (String) -> Unit
 ) {
-    // Pick the first subscribed shop ID for each category to route into OrderScreen
-    val hotelId   = uiState.hotelShops.firstOrNull { it.isSubscribed }?.id   ?: "1"
-    val medicalId = uiState.medicalShops.firstOrNull { it.isSubscribed }?.id ?: "2"
-    val meatId    = uiState.meatShops.firstOrNull { it.isSubscribed }?.id    ?: "4"
-    val groceryId = uiState.groceryShops.firstOrNull { it.isSubscribed }?.id ?: "3"
-
     // Hotel image URL from Firestore (falls back to static URL if empty)
     val hotelImageUrl = uiState.hotelShops.firstOrNull()?.imageUrl?.takeIf { it.isNotBlank() }
         ?: "https://lh3.googleusercontent.com/aida-public/AB6AXuC4UsQL2OPJ0msDFRqS-Ys_1i-NdorJZ-rgN9c2Kur0eAQCWLtBcvRdzby2Yimd586VCJDBw9EXvoTZhpIZtxJB5msNIXzdW2igD52Aw3SL1sd9D66OBiHIVGrYfjbsUFI86p49A1wCuUO4w9ILIfe0HaSKxwvMNhDv9918wUe5n7K6Ur4CCZurjKEtqkeH9vj4MkUitTheNd2JPHbK9mt7SqEWXTxbSmRTBP4go5LzacMpunt67Y4yz4FNLi8t3uw7cCaD2KEqkw"
@@ -177,7 +171,7 @@ fun BentoCategoryGrid(
             title    = "ஹோட்டல் (சாப்பாடு)",
             imageUrl = hotelImageUrl,
             icon     = Icons.Default.Restaurant,
-            onClick  = { onCategorySelected(hotelId) }
+            onClick  = { onCategorySelected("ஹோட்டல்") }
         )
 
         Row(
@@ -191,7 +185,7 @@ fun BentoCategoryGrid(
                 contentColor       = MaterialTheme.colorScheme.onSecondaryContainer,
                 iconContainerColor = Color.White.copy(alpha = 0.5f),
                 modifier           = Modifier.weight(1f),
-                onClick            = { onCategorySelected(medicalId) }
+                onClick            = { onCategorySelected("மெடிக்கல்") }
             )
 
             SmallCategoryCard(
@@ -201,7 +195,7 @@ fun BentoCategoryGrid(
                 contentColor       = MaterialTheme.colorScheme.onTertiaryContainer,
                 iconContainerColor = Color.White.copy(alpha = 0.5f),
                 modifier           = Modifier.weight(1f),
-                onClick            = { onCategorySelected(meatId) }
+                onClick            = { onCategorySelected("இறைச்சி") }
             )
         }
 
@@ -211,7 +205,7 @@ fun BentoCategoryGrid(
             icon           = Icons.Default.Storefront,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor   = MaterialTheme.colorScheme.onPrimaryContainer,
-            onClick        = { onCategorySelected(groceryId) }
+            onClick        = { onCategorySelected("மளிகை") }
         )
 
         Phase2Card()

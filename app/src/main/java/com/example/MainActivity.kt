@@ -29,6 +29,8 @@ import com.example.ui.screens.HelpScreen
 import com.example.ui.screens.OrderScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.SuccessScreen
+import com.example.ui.navigation.CategoryDetail
+import com.example.ui.screens.CategoryDetailScreen
 import com.example.ui.theme.MyApplicationTheme
 
 private const val PREFS_NAME   = "namma_ooru_prefs"
@@ -126,7 +128,19 @@ class MainActivity : ComponentActivity() {
                         composable(Home.route) {
                             HomeScreen(
                                 innerPadding       = innerPadding,
-                                onCategorySelected = { shopId ->
+                                onCategorySelected = { categoryName ->
+                                    navController.navigate(CategoryDetail.createRoute(categoryName))
+                                }
+                            )
+                        }
+
+                        composable(CategoryDetail.route) { backStackEntry ->
+                            val categoryName = backStackEntry.arguments?.getString("categoryName") ?: ""
+                            CategoryDetailScreen(
+                                categoryName   = categoryName,
+                                innerPadding   = innerPadding,
+                                onNavigateBack = { navController.popBackStack() },
+                                onShopSelected = { shopId ->
                                     navController.navigate(Order.createRoute(shopId))
                                 }
                             )
