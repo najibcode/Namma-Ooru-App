@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.audio.AudioRecorder
 import com.example.data.OrderHistoryRepository
 import com.example.data.OrderRecord
+import com.example.data.FirestoreShopRepository
 import com.example.data.ShopRepository
 import com.example.dispatch.CustomerOrder
 import com.example.dispatch.DeliveryMode
@@ -160,7 +161,7 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
     // WhatsAppDispatcher is an `object` — no injection needed; referenced directly.
 
     /** Module 4 — Offline-first shop directory and IVR telephony integration. */
-    private val repository = ShopRepository()
+    private val repository = FirestoreShopRepository.instance
 
     // ── State ─────────────────────────────────────────────────────────────────
 

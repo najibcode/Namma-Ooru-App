@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.FirestoreShopRepository
 import com.example.data.ShopRepository
 import com.example.ui.viewmodel.OrderNavigationEvent
 import com.example.ui.viewmodel.OrderViewModel
@@ -73,7 +74,7 @@ fun OrderScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     // ── Shop lookup (data layer only — no business logic here) ────────────────
-    val shopRepo = remember { ShopRepository() }
+    val shopRepo = remember { FirestoreShopRepository.instance }
     val shop     = remember(shopId) { shopRepo.getShopById(shopId) }
 
     // ── One-shot navigation events ────────────────────────────────────────────
