@@ -13,3 +13,8 @@ object Success {
     val route = "Success/{shopId}/{orderItemsStr}/{totalCostStr}"
     fun createRoute(shopId: String, orderItemsStr: String, totalCostStr: String) = "Success/$shopId/$orderItemsStr/$totalCostStr"
 }
+object CategoryDetail {
+    val route = "CategoryDetail/{categoryName}"
+    fun createRoute(categoryName: String) = "CategoryDetail/$categoryName"
+}
+
