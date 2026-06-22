@@ -304,18 +304,39 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
 
         // Module 3 + 4: Dispatch and IVR trigger in a coroutine
         viewModelScope.launch(Dispatchers.Main) {
-            Log.d(TAG, "Dispatching order: \"$transcript\" → ${activeShop.whatsAppNumber}")
+            Log.d(TAG, "Parsing and dispatching order: \"$transcript\" → ${activeShop.whatsAppNumber}")
+
+            val parseResult = com.example.speech.VoiceOrderParser.parseOrder(transcript, activeShop)
+
+            var itemsList: List<com.example.speech.ParsedOrderItem>? = null
+            var displayPrice = ""
+            var displayCount = ""
+            var orderSummary = transcript
+
+            if (parseResult.isSuccess) {
+                val parsed = parseResult.getOrThrow()
+                itemsList = parsed.items
+                displayPrice = "₹" + "%.2f".format(parsed.totalPrice)
+                displayCount = "${parsed.totalCount} பொருள்கள்"
+                orderSummary = parsed.itemSummaryTamil
+            } else {
+                val (count, price) = deriveDisplayMetrics(activeShop)
+                displayPrice = price
+                displayCount = count
+            }
 
             // ── Module 3: WhatsApp dispatch ────────────────────────────────────
             val dispatchResult = WhatsAppDispatcher.dispatchVoiceOrder(
                 context       = getApplication(),
                 merchantPhone = activeShop.whatsAppNumber,
-                transcript    = transcript,
+                transcript    = orderSummary,
                 order         = CustomerOrder(
                     customerName  = currentState.customerName,
                     customerPhone = currentState.customerPhone,
                     deliveryMode  = if (currentState.isHomeDelivery) DeliveryMode.HOME_DELIVERY
-                                   else DeliveryMode.SELF_PICKUP
+                                   else DeliveryMode.SELF_PICKUP,
+                    itemsList     = itemsList,
+                    totalPrice    = parseResult.getOrNull()?.totalPrice
                 )
             )
 
@@ -329,38 +350,36 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
                         Log.i(TAG, "IVR trigger completed.")
                     }
 
-                    val (count, price) = deriveDisplayMetrics(activeShop)
-
                     // ── Append to live order history log ───────────────────────────
                     OrderHistoryRepository.appendOrder(
                         OrderRecord(
                             shopId       = activeShop.id,
                             shopName     = activeShop.nameTamil,
                             category     = activeShop.category,
-                            transcript   = transcript,
+                            transcript   = orderSummary,
                             customerName = currentState.customerName,
                             deliveryMode = if (currentState.isHomeDelivery)
                                 "வீட்டு விநியோகம் (Home Delivery)"
                             else
                                 "நேரில் வாங்கிக்கொள்ளல் (Self Pickup)",
-                            displayPrice = price,
-                            displayCount = count,
+                            displayPrice = displayPrice,
+                            displayCount = displayCount,
                             isDispatched = true
                         )
                     )
 
                     _uiState.update { it.copy(
                         recordingState    = RecordingState.Idle,
-                        transcriptText    = transcript,
+                        transcriptText    = orderSummary,
                         isOrderDispatched = true,
-                        displayCount      = count,
-                        displayPrice      = price
+                        displayCount      = displayCount,
+                        displayPrice      = displayPrice
                     )}
 
                     _navigationEvent.emit(OrderNavigationEvent.NavigateToSuccess(
                         shopId     = activeShop.id,
-                        itemCount  = count,
-                        totalPrice = price
+                        itemCount  = displayCount,
+                        totalPrice = displayPrice
                     ))
                 }
 
@@ -371,11 +390,10 @@ class OrderViewModel(application: Application) : AndroidViewModel(application) {
                         errorTamil        = dispatchResult.fallbackMessage,
                         isOrderDispatched = true  // still complete flow
                     )}
-                    val (count, price) = deriveDisplayMetrics(activeShop)
                     _navigationEvent.emit(OrderNavigationEvent.NavigateToSuccess(
                         shopId     = activeShop.id,
-                        itemCount  = count,
-                        totalPrice = price
+                        itemCount  = displayCount,
+                        totalPrice = displayPrice
                     ))
                 }
 

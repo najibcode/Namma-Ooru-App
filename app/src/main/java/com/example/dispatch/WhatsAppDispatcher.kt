@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.util.Patterns
+import com.example.speech.ParsedOrderItem
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // WhatsAppDispatcher.kt — Voice order routing layer for நம்ம ஊரு ஆப்
@@ -74,7 +76,9 @@ data class CustomerOrder(
     val customerName: String,
     val customerPhone: String,
     val deliveryMode: DeliveryMode,
-    val audioFileNote: String = "ஆடியோ கோப்பு இணைக்கப்பட்டுள்ளது"
+    val audioFileNote: String = "ஆடியோ கோப்பு இணைக்கப்பட்டுள்ளது",
+    val itemsList: List<ParsedOrderItem>? = null,
+    val totalPrice: Double? = null
 )
 
 /**
@@ -251,6 +255,18 @@ object WhatsAppDispatcher {
         appendLine("*பேசிய விபரம் (Text):* \"${transcript.trim()}\"")
         appendLine("*குரல் பதிவு (Voice Note):* [${order.audioFileNote}]")
         appendLine()
+
+        // ── Structured Items ──────────────────────────────────────────────────
+        if (!order.itemsList.isNullOrEmpty()) {
+            appendLine("*ஆர்டர் விவரங்கள் (Items):*")
+            order.itemsList.forEach { item ->
+                appendLine("- ${item.name} x${item.quantity} (₹${"%.2f".format(item.totalItemPrice)})")
+            }
+            order.totalPrice?.let {
+                appendLine("*மொத்த தொகை (Total):* ₹${"%.2f".format(it)}")
+            }
+            appendLine()
+        }
 
         // ── Customer details ──────────────────────────────────────────────────
         appendLine("*வாடிக்கையாளர் பெயர்:* ${order.customerName}")
